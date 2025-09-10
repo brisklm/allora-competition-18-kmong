@@ -1,83 +1,91 @@
 import os
+import json
+import pickle
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler, VarianceThreshold
-from sklearn.metrics import r2_score
-from sklearn.model_selection import train_test_split
-import joblib
-import config
-try:
+from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import VarianceThreshold
+from scipy.stats import pearsonr
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from config import *
+if optuna is not None:
     import optuna
-except:
-    optuna = None
-from tensorflow.keras.models import Sequential # type: ignore
-from tensorflow.keras.layers import LSTM, Dense, Dropout # type: ignore
 
-def compute_vader_sentiment(texts):
-    if config.SentimentIntensityAnalyzer is None:
-        return np.zeros(len(texts))
-    sia = config.SentimentIntensityAnalyzer()
-    return np.array([sia.polarity_scores(text)['compound'] for text in texts])
+def load_data():
+    return pd.read_csv(training_price_data_path)
 
-def preprocess_data(df):
-    df = df.fillna(method='ffill').fillna(0)  # NaN handling
-    selector = VarianceThreshold(threshold=0.01)  # low-variance check
-    df_selected = pd.DataFrame(selector.fit_transform(df[config.FEATURES]), columns=[config.FEATURES[i] for i in selector.get_support(indices=True)])
-    scaler = MinMaxScaler()
-    scaled = scaler.fit_transform(df_selected)
-    joblib.dump(scaler, config.scaler_file_path)
-    return scaled, df['log_return_8h'].values
-
-def build_model(input_shape, trial=None):
-    model = Sequential()
-    if trial:
-        layers = trial.suggest_int('layers', 1, 3)
-        units = trial.suggest_int('units', 50, 200)
-        dropout = trial.suggest_float('dropout', 0.0, 0.5)
+def compute_sentiment(texts):
+    if SentimentIntensityAnalyzer is not None:
+        sia = SentimentIntensityAnalyzer()
+        sentiments = [sia.polarity_scores(text)['compound'] for text in texts]
+        return np.array(sentiments)
     else:
-        layers, units, dropout = 2, 100, 0.2
-    model.add(LSTM(units, return_sequences=(layers > 1), input_shape=input_shape))
+        return np.zeros(len(texts))
+
+def select_features(df, target):
+    df = df.replace([np.inf, -np.inf], np.nan).fillna(0)
+    selector = VarianceThreshold(threshold=VARIANCE_THRESHOLD)
+    X = selector.fit_transform(df.drop(columns=[target]))
+    features = df.drop(columns=[target]).columns[selector.get_support()]
+    high_corr_features = []
+    for feat in features:
+        corr, _ = pearsonr(df[feat], df[target])
+        if np.isnan(corr):
+            continue
+        if abs(corr) > CORR_THRESHOLD:
+            high_corr_features.append(feat)
+    return high_corr_features
+
+def objective(trial, X, y, timesteps):
+    units = trial.suggest_int('units', 50, 200)
+    dropout = trial.suggest_float('dropout', 0.0, 0.5)
+    model = Sequential()
+    model.add(LSTM(units, input_shape=(timesteps, X.shape[2])))
     model.add(Dropout(dropout))
-    for _ in range(1, layers):
-        model.add(LSTM(units, return_sequences=(_ < layers-1)))
-        model.add(Dropout(dropout))
     model.add(Dense(1))
     model.compile(optimizer='adam', loss='mse')
-    return model
-
-def optuna_objective(trial, X, y):
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2)
-    model = build_model((X_train.shape[1], X_train.shape[2]), trial)
-    model.fit(X_train, y_train, epochs=50, batch_size=32, validation_data=(X_val, y_val), verbose=0)
-    preds = model.predict(X_val)
-    return -r2_score(y_val, preds)  # maximize R2
+    model.fit(X, y, epochs=10, batch_size=32, verbose=0)
+    score = model.evaluate(X, y, verbose=0)
+    return -score  # Maximize negative loss for R2-like
 
 def train_model():
-    df = pd.read_csv(config.training_price_data_path)
-    # Assume df has 'text' column for sentiment
+    df = load_data()
+    # Assume 'text' column for sentiment, replace with actual
     if 'text' in df.columns:
-        df['vader_compound'] = compute_vader_sentiment(df['text'])
-    X, y = preprocess_data(df)
-    X = X.reshape((X.shape[0], 1, X.shape[1]))  # for LSTM
-    if optuna:
-        study = optuna.create_study(direction='minimize')
-        study.optimize(lambda trial: optuna_objective(trial, X, y), n_trials=config.OPTUNA_PARAMS['n_trials'])
-        best_trial = study.best_trial
-        model = build_model((X.shape[1], X.shape[2]), best_trial)
+        df['vader_sentiment'] = compute_sentiment(df['text'])
+    df = df.fillna(method='ffill').fillna(0)
+    selected = select_features(df, 'log_return')
+    X = df[selected].values
+    y = df['log_return'].values
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    timesteps = 10  # Example
+    X_reshaped = np.array([X_scaled[i:i+timesteps] for i in range(len(X_scaled)-timesteps)])
+    y = y[timesteps:]
+    if optuna is not None:
+        study = optuna.create_study(direction='maximize')
+        study.optimize(lambda trial: objective(trial, X_reshaped, y, timesteps), n_trials=OPTUNA_TRIALS)
+        best_params = study.best_params
+        model = Sequential()
+        model.add(LSTM(best_params['units'], input_shape=(timesteps, X_reshaped.shape[2])))
+        model.add(Dropout(best_params['dropout']))
+        model.add(Dense(1))
+        model.compile(optimizer='adam', loss='mse')
+        model.fit(X_reshaped, y, epochs=50, batch_size=32, verbose=0)
     else:
-        model = build_model((X.shape[1], X.shape[2]))
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-    model.fit(X_train, y_train, epochs=100, batch_size=32, validation_data=(X_test, y_test))
-    joblib.dump(model, config.model_file_path)
-    r2 = r2_score(y_test, model.predict(X_test))
-    print(f'R2: {r2}')
-    # Ensembling: simple average with another model if needed
-    return model
+        model = Sequential()
+        model.add(LSTM(100, input_shape=(timesteps, X_reshaped.shape[2])))
+        model.add(Dropout(0.2))
+        model.add(Dense(1))
+        model.compile(optimizer='adam', loss='mse')
+        model.fit(X_reshaped, y, epochs=50, batch_size=32, verbose=0)
+    # TODO: Add hybrid with LightGBM, ensembling, smoothing
+    with open(model_file_path, 'wb') as f:
+        pickle.dump(model, f)
+    with open(scaler_file_path, 'wb') as f:
+        pickle.dump(scaler, f)
 
-def load_model():
-    return joblib.load(config.model_file_path)
-
-def make_prediction(model, data):
-    scaler = joblib.load(config.scaler_file_path)
-    input_data = scaler.transform(pd.DataFrame(data))[0].reshape(1, 1, -1)
-    return model.predict(input_data)[0][0]
+if __name__ == '__main__':
+    train_model()
