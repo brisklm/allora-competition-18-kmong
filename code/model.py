@@ -1,55 +1,64 @@
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import r2_score
-import joblib
-try:
-    from nltk.sentiment.vader import SentimentIntensityAnalyzer
-except:
-    SentimentIntensityAnalyzer = None
-from config import FEATURES, HYPERPARAMS, LOW_VARIANCE_THRESHOLD, model_file_path, scaler_file_path
+from sklearn.model_selection import train_test_split
+import lightgbm as lgb
+from config import *
 
-def add_sentiment(df):
-    if SentimentIntensityAnalyzer:
-        sia = SentimentIntensityAnalyzer()
-        df['sentiment_score'] = df['text'].apply(lambda x: sia.polarity_scores(x)['compound'] if pd.notnull(x) else 0)
-    else:
-        df['sentiment_score'] = 0
-    return df
+# Load and preprocess data
+def load_data():
+    data = pd.read_csv(training_price_data_path)
+    data['log_return'] = np.log(data['close']).diff()
+    data['vader_sentiment'] = data['news'].apply(analyze_sentiment)
+    data = data.dropna()
+    return data[FEATURES]
 
-def check_low_variance(df):
-    variances = df[FEATURES].var()
-    low_var_features = [f for f in FEATURES if variances[f] < LOW_VARIANCE_THRESHOLD]
-    return [f for f in FEATURES if f not in low_var_features]
-
-def train_model(data):
-    data = add_sentiment(data)
-    data = data.dropna(subset=FEATURES)  # Robust NaN handling
-    selected_features = check_low_variance(data)
-    X = data[selected_features]
-    y = data['log_return_8h']
+def preprocess_data(data):
     scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    # Placeholder for LSTM_Hybrid model, with ensembling
-    models = []
-    for _ in range(HYPERPARAMS['ensemble_size']):
-        # Simulate training
-        model = {'params': HYPERPARAMS}  # Replace with actual model
-        models.append(model)
-    joblib.dump(models, model_file_path)
-    joblib.dump(scaler, scaler_file_path)
-    # Simulate R2
-    preds = np.random.rand(len(y))
-    r2 = r2_score(y, preds)
-    return r2
+    scaled_data = scaler.fit_transform(data)
+    np.save(scaler_file_path, scaler)
+    return scaled_data
 
-def predict(data):
-    data = add_sentiment(data)
-    scaler = joblib.load(scaler_file_path)
-    models = joblib.load(model_file_path)
-    X = data[FEATURES]
-    X_scaled = scaler.transform(X)
-    preds = np.mean([m.predict(X_scaled) for m in models], axis=0)  # Ensembling
-    # Smoothing
-    preds = pd.Series(preds).ewm(span=5).mean().values
-    return preds
+def train_model(X, y):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    model = lgb.LGBMRegressor()
+    model.fit(X_train, y_train)
+    return model
+
+def optimize_and_train():
+    data = load_data()
+    X = preprocess_data(data[FEATURES[1:]])
+    y = data[FEATURES[0]]
+    
+    if optuna is not None:
+        best_params, _ = optimize_model()
+        model = lgb.LGBMRegressor(**best_params)
+    else:
+        model = lgb.LGBMRegressor()
+    
+    model.fit(X, y)
+    return model
+
+def predict(model, X):
+    X = handle_nan(X)
+    predictions = model.predict(X)
+    return predictions
+
+# Main execution
+def main():
+    data = load_data()
+    X = preprocess_data(data[FEATURES[1:]])
+    y = data[FEATURES[0]]
+    
+    model = optimize_and_train()
+    predictions = predict(model, X)
+    
+    # Calculate R2 and correlation
+    r2 = np.corrcoef(y, predictions)[0, 1] ** 2
+    correlation = np.corrcoef(y, predictions)[0, 1]
+    
+    print(f"R2: {r2}")
+    print(f"Correlation: {correlation}")
+
+if __name__ == '__main__':
+    main()
