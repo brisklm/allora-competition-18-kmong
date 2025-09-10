@@ -33,16 +33,23 @@ HELIUS_API_KEY = os.getenv('HELIUS_API_KEY', '70ed65ce-4750-4fd5-83bd-5aee9aa79e
 HELIUS_RPC_URL = os.getenv('HELIUS_RPC_URL', 'https://mainnet.helius-rpc.com')
 BITQUERY_API_KEY = os.getenv('BITQUERY_API_KEY', 'ory_at_LmFLzUutMY8EVb-P_PQVP9ntfwUVTV05LMal7xUqb2I.vxFLfMEoLGcu4XoVi47j-E2bspraTSrmYzCt1A4y2k')
 # Enhanced feature set optimized for MZTAE ≤0.50 and DA ≥60%
-# Features are listed in priority order
+# Features are listed in priority order - missing ones can be omitted if data unavailable
 FEATURES = [
-    'log_return_8h',  # target
-    'close', 'volume', 'rsi_14', 'macd', 'bollinger_upper', 'bollinger_lower',
-    'eth_close', 'sol_close',  # cross-chain correlations
-    'vader_compound' if SentimentIntensityAnalyzer else None,  # sentiment
+    'log_return_lag1', 'volume', 'vader_sentiment', 'rsi_14', 'macd', 'bollinger_mid', 'onchain_tx_volume', 'whale_activity'
 ]
-FEATURES = [f for f in FEATURES if f is not None]
-# Optuna params for tuning
-OPTUNA_PARAMS = {
-    'n_trials': 50,
-    'objective': 'regression',
-}
+# Optuna tuning parameters
+OPTUNA_TRIALS = 100
+# For tree models in hybrid
+MAX_DEPTH = 10
+NUM_LEAVES = 31
+REG_ALPHA = 0.1
+REG_LAMBDA = 0.1
+# For ensembling
+ENSEMBLE_MODELS = ['LSTM', 'LightGBM', 'Prophet']
+# Smoothing
+SMOOTHING_METHOD = 'ema'
+SMOOTHING_ALPHA = 0.1
+# Correlation threshold
+CORR_THRESHOLD = 0.25
+# Low variance threshold
+VARIANCE_THRESHOLD = 0.01
