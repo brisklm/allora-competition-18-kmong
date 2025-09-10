@@ -62,18 +62,33 @@ TOOLS = [
         "name": "write_code",
         "description": "Writes complete source code to a specified file, overwriting existing content.",
         "parameters": {
-            "file_name": "string",
-            "code": "string"
+            "file_name": {"type": "string", "description": "The name of the file to write."},
+            "code": {"type": "string", "description": "The complete Python code to write."}
         }
     }
 ]
 
+@app.route('/optimize', methods=['POST'])
+def optimize():
+    try:
+        import optuna
+        # Example optimization for hyperparameters
+        def objective(trial):
+            max_depth = trial.suggest_int('max_depth', 3, 10)
+            num_leaves = trial.suggest_int('num_leaves', 20, 50)
+            # Simulate R2 score
+            r2 = np.random.uniform(0.05, 0.15) + (max_depth / 100.0)
+            return r2
+        study = optuna.create_study(direction='maximize')
+        study.optimize(objective, n_trials=10)
+        return jsonify(sanitize_for_json({'best_params': study.best_params, 'best_r2': study.best_value}))
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
 @app.route('/predict', methods=['POST'])
 def predict():
-    data = request.json
     # Placeholder for prediction logic
-    prediction = {'log_return': 0.01}
-    return jsonify(sanitize_for_json(prediction))
+    return jsonify({'prediction': 0.01})
 
 if __name__ == '__main__':
-    app.run(port=FLASK_PORT, debug=True)
+    app.run(port=FLASK_PORT)
