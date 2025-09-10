@@ -61,24 +61,29 @@ TOOLS = [
     {
         "name": "write_code",
         "description": "Writes complete source code to a specified file, overwriting existing content.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "filename": {"type": "string"},
-                "code": {"type": "string"}
-            },
-            "required": ["filename", "code"]
-        }
+        "parameters": {"file": "string", "code": "string"}
     }
 ]
 
-@app.route('/predict', methods=['POST'])
-def predict():
-    from model import load_model, make_prediction
+@app.route('/tools', methods=['GET'])
+def get_tools():
+    return jsonify(TOOLS)
+
+@app.route('/run_tool', methods=['POST'])
+def run_tool():
     data = request.json
-    model = load_model()
-    prediction = make_prediction(model, data)
-    return jsonify(sanitize_for_json({'prediction': prediction}))
+    tool = data.get('tool')
+    if tool == 'optimize':
+        from model import train_model
+        train_model()
+        return jsonify({'status': 'optimized'})
+    elif tool == 'write_code':
+        file = data.get('file')
+        code = data.get('code')
+        with open(file, 'w') as f:
+            f.write(code)
+        return jsonify({'status': 'code written'})
+    return Response(status=400)
 
 if __name__ == '__main__':
     app.run(port=FLASK_PORT)
