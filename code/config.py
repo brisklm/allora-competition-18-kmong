@@ -33,14 +33,18 @@ HELIUS_API_KEY = os.getenv('HELIUS_API_KEY', '70ed65ce-4750-4fd5-83bd-5aee9aa79e
 HELIUS_RPC_URL = os.getenv('HELIUS_RPC_URL', 'https://mainnet.helius-rpc.com')
 BITQUERY_API_KEY = os.getenv('BITQUERY_API_KEY', 'ory_at_LmFLzUutMY8EVb-P_PQVP9ntfwUVTV05LMal7xUqb2I.vxFLfMEoLGcu4XoVi47j-E2bspraTSrmYzCt1A4y2k')
 # Enhanced feature set optimized for MZTAE ≤0.50 and DA ≥60%
-# Features are listed in priority order - missing features will be imputed
+# Features are listed in priority order - missing values handled with forward fill
 FEATURES = [
-    'log_return_8h_lag1', 'volume_8h', 'rsi_14', 'macd', 'sentiment_vader'
+    'log_return_8h', 'volume', 'rsi_14', 'macd', 'bollinger_upper', 'bollinger_lower',
+    'sentiment_score'  # Added VADER sentiment
 ]
-# Optuna params for tuning
-OPTUNA_PARAMS = {
-    'max_depth': 10,
-    'num_leaves': 50,
-    'reg_alpha': 0.1,
-    'reg_lambda': 0.1
+# Hyperparameters adjusted for suggestions
+HYPERPARAMS = {
+    'max_depth': 7,  # Adjusted
+    'num_leaves': 30,  # Adjusted
+    'reg_alpha': 0.1,  # Added regularization
+    'reg_lambda': 0.1,  # Added regularization
+    'ensemble_size': 5  # For ensembling
 }
+# Low-variance check threshold
+LOW_VARIANCE_THRESHOLD = 1e-5
