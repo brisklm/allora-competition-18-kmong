@@ -34,46 +34,38 @@ HELIUS_API_KEY = os.getenv('HELIUS_API_KEY', '70ed65ce-4750-4fd5-83bd-5aee9aa79e
 HELIUS_RPC_URL = os.getenv('HELIUS_RPC_URL', 'https://mainnet.helius-rpc.com')
 BITQUERY_API_KEY = os.getenv('BITQUERY_API_KEY', 'ory_at_LmFLzUutMY8EVb-P_PQVP9ntfwUVTV05LMal7xUqb2I.vxFLfMEoLGcu4XoVi47j-E2bspraTSrmYzCt1A4y2k')
 
-# Enhanced feature set optimized for MZTAE ≤0.50 and DA ≥60%
-FEATURES = [
-    'log_return', 'volume', 'vader_sentiment', 'rsi', 'macd', 'bollinger_band', 'momentum', 'atr', 'adx', 'obv'
-]
+# Enhanced feature set
+FEATURES = ['log_return', 'volume', 'vader_sentiment'] if SentimentIntensityAnalyzer else ['log_return', 'volume']
 
-# VADER sentiment analysis
-if SentimentIntensityAnalyzer is not None:
-    def analyze_sentiment(text):
-        sia = SentimentIntensityAnalyzer()
-        return sia.polarity_scores(text)['compound']
-else:
-    def analyze_sentiment(text):
-        return 0.0  # Fallback to neutral sentiment if VADER is not available
-
-# Optuna tuning
-if optuna is not None:
+# Optional Optuna tuning
+if optuna:
     def objective(trial):
         params = {
             'max_depth': trial.suggest_int('max_depth', 3, 10),
-            'num_leaves': trial.suggest_int('num_leaves', 20, 100),
-            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
+            'num_leaves': trial.suggest_int('num_leaves', 10, 100),
+            'learning_rate': trial.suggest_loguniform('learning_rate', 1e-3, 1e-1),
             'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
-            'reg_alpha': trial.suggest_float('reg_alpha', 0.0, 1.0),
-            'reg_lambda': trial.suggest_float('reg_lambda', 0.0, 1.0)
+            'reg_alpha': trial.suggest_loguniform('reg_alpha', 1e-5, 1e-1),
+            'reg_lambda': trial.suggest_loguniform('reg_lambda', 1e-5, 1e-1)
         }
-        # Implement model training and evaluation here
-        return 0.0  # Placeholder for actual metric
+        # Placeholder for model training and evaluation
+        return np.random.rand()  # Random objective value for demonstration
 
-    def optimize_model():
-        study = optuna.create_study(direction='maximize')
-        study.optimize(objective, n_trials=100)
-        return study.best_params, study.best_value
+    study = optuna.create_study(direction='maximize')
+    study.optimize(objective, n_trials=100)
+    best_params = study.best_params
 else:
-    def optimize_model():
-        return {"error": "Optuna is not installed"}, None
+    best_params = {
+        'max_depth': 5,
+        'num_leaves': 31,
+        'learning_rate': 0.01,
+        'n_estimators': 500,
+        'reg_alpha': 0.01,
+        'reg_lambda': 0.01
+    }
 
-# Robust NaN handling and low-variance checks
-def handle_nan(data):
-    return np.nan_to_num(data, nan=0.0, posinf=1e9, neginf=-1e9)
-
+# Function to check for low variance
 def check_low_variance(data, threshold=0.01):
     variances = np.var(data, axis=0)
-    return variances > threshold
+    low_variance_features = np.where(variances < threshold)[0]
+    return low_variance_features
