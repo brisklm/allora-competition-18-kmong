@@ -6,11 +6,9 @@ from dotenv import load_dotenv
 import numpy as np
 import math
 
-# Initialize app and env
 app = Flask(__name__)
 load_dotenv()
 
-# Dynamic version tag for visibility in logs
 COMPETITION = os.getenv("COMPETITION", "competition18")
 TOPIC_ID = os.getenv("TOPIC_ID", "64")
 TOKEN = os.getenv("TOKEN", "BTC")
@@ -19,10 +17,6 @@ MCP_VERSION = f"{datetime.utcnow().date()}-{COMPETITION}-topic{TOPIC_ID}-app-{TO
 FLASK_PORT = int(os.getenv("FLASK_PORT", 9001))
 
 def sanitize_for_json(obj):
-    """
-    Recursively sanitize an object to ensure it's JSON serializable.
-    Replaces NaN, inf, -inf with None or appropriate values.
-    """
     if isinstance(obj, dict):
         return {key: sanitize_for_json(value) for key, value in obj.items()}
     elif isinstance(obj, list):
@@ -45,13 +39,11 @@ def sanitize_for_json(obj):
             return 1e9 if obj > 0 else -1e9
         else:
             return float(obj)
-    elif hasattr(obj, 'item'):  # numpy scalars
+    elif hasattr(obj, 'item'):
         return sanitize_for_json(obj.item())
     else:
-        # For any other type, try to convert to string
         return str(obj)
 
-# MCP Tools
 TOOLS = [
     {
         "name": "optimize",
@@ -62,33 +54,39 @@ TOOLS = [
         "name": "write_code",
         "description": "Writes complete source code to a specified file, overwriting existing content.",
         "parameters": {
-            "file_name": {"type": "string", "description": "The name of the file to write."},
-            "code": {"type": "string", "description": "The complete Python code to write."}
+            "file_name": "str",
+            "code": "str"
         }
     }
 ]
 
-@app.route('/optimize', methods=['POST'])
-def optimize():
-    try:
-        import optuna
-        # Example optimization for hyperparameters
-        def objective(trial):
-            max_depth = trial.suggest_int('max_depth', 3, 10)
-            num_leaves = trial.suggest_int('num_leaves', 20, 50)
-            # Simulate R2 score
-            r2 = np.random.uniform(0.05, 0.15) + (max_depth / 100.0)
-            return r2
-        study = optuna.create_study(direction='maximize')
-        study.optimize(objective, n_trials=10)
-        return jsonify(sanitize_for_json({'best_params': study.best_params, 'best_r2': study.best_value}))
-    except Exception as e:
-        return jsonify({'error': str(e)})
+@app.route('/tools', methods=['GET'])
+def get_tools():
+    return jsonify(TOOLS)
 
-@app.route('/predict', methods=['POST'])
-def predict():
-    # Placeholder for prediction logic
-    return jsonify({'prediction': 0.01})
+@app.route('/invoke', methods=['POST'])
+def invoke_tool():
+    data = request.json
+    tool_name = data.get('tool_name')
+    tool = next((t for t in TOOLS if t['name'] == tool_name), None)
+    if tool is None:
+        return jsonify({"error": "Tool not found"}), 404
+    
+    if tool_name == 'optimize':
+        from model import optimize_model
+        result = optimize_model()
+        return jsonify(sanitize_for_json(result))
+    elif tool_name == 'write_code':
+        file_name = data.get('file_name')
+        code = data.get('code')
+        if file_name and code:
+            with open(file_name, 'w') as file:
+                file.write(code)
+            return jsonify({"message": f"Code written to {file_name}"})
+        else:
+            return jsonify({"error": "Missing file_name or code"}), 400
+    
+    return jsonify({"error": "Tool not implemented"}), 501
 
 if __name__ == '__main__':
-    app.run(port=FLASK_PORT)
+    app.run(host='0.0.0.0', port=FLASK_PORT)
