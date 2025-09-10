@@ -54,39 +54,21 @@ TOOLS = [
         "name": "write_code",
         "description": "Writes complete source code to a specified file, overwriting existing content.",
         "parameters": {
-            "file_name": "str",
-            "code": "str"
+            "file_path": "str",
+            "content": "str"
         }
     }
 ]
 
-@app.route('/tools', methods=['GET'])
-def get_tools():
-    return jsonify(TOOLS)
-
-@app.route('/invoke', methods=['POST'])
-def invoke_tool():
+@app.route('/predict', methods=['POST'])
+def predict():
     data = request.json
-    tool_name = data.get('tool_name')
-    tool = next((t for t in TOOLS if t['name'] == tool_name), None)
-    if tool is None:
-        return jsonify({"error": "Tool not found"}), 404
-    
-    if tool_name == 'optimize':
-        from model import optimize_model
-        result = optimize_model()
-        return jsonify(sanitize_for_json(result))
-    elif tool_name == 'write_code':
-        file_name = data.get('file_name')
-        code = data.get('code')
-        if file_name and code:
-            with open(file_name, 'w') as file:
-                file.write(code)
-            return jsonify({"message": f"Code written to {file_name}"})
-        else:
-            return jsonify({"error": "Missing file_name or code"}), 400
-    
-    return jsonify({"error": "Tool not implemented"}), 501
+    prediction = predict_log_return(data)
+    return jsonify({"prediction": sanitize_for_json(prediction)})
+
+def predict_log_return(data):
+    # Placeholder for actual prediction logic
+    return np.random.rand()  # Random prediction for demonstration
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=FLASK_PORT)
